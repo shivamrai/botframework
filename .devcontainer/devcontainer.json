@@ -1,0 +1,15 @@
+{
+    "name": "BotFramework Dev Container",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "mounts": [
+        "source=${localWorkspaceFolder}/localssh,target=/home/vscode/.ssh,type=bind"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "GitHub.copilot"
+            ]
+        }
+    },
+    "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.ssh && chmod 700 /home/vscode/.ssh && chmod 600 /home/vscode/.ssh/* || true"
+}
