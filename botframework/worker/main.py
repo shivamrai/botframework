@@ -1,16 +1,21 @@
+"""Worker service entrypoint for chat completions."""
+# pylint: disable=import-error,wrong-import-position
 import argparse
-import uvicorn
-import sys
+import json
 import os
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 
 # Add the parent directory to sys.path to allow imports from botframework
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from rest.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
+from rest.schemas import ChatCompletionRequest
 
 # Try importing llama-cpp-python
 try:
@@ -23,7 +28,8 @@ except ImportError:
 llm: Optional[Llama] = None
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
+    """Handle startup and shutdown for the FastAPI app."""
     # Startup logic
     print("🚀 Worker starting up...")
     yield
@@ -34,8 +40,7 @@ app = FastAPI(title="BotFramework Worker", lifespan=lifespan)
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
-    global llm
-    
+    """Handle chat completion requests."""
     print(f"📥 Received request for model: {request.model}")
 
     if llm is None:
@@ -50,10 +55,10 @@ async def chat_completions(request: ChatCompletionRequest):
             stream_chat_response(messages, request),
             media_type="text/event-stream"
         )
-    else:
-        return create_chat_response(messages, request)
+    return create_chat_response(messages, request)
 
 def create_chat_response(messages, request: ChatCompletionRequest):
+    """Create a non-streaming chat completion response."""
     response = llm.create_chat_completion(
         messages=messages,
         temperature=request.temperature,
@@ -67,6 +72,7 @@ def create_chat_response(messages, request: ChatCompletionRequest):
     return response
 
 def stream_chat_response(messages, request: ChatCompletionRequest):
+    """Stream chat completion chunks as server-sent events."""
     stream = llm.create_chat_completion(
         messages=messages,
         temperature=request.temperature,
@@ -77,16 +83,15 @@ def stream_chat_response(messages, request: ChatCompletionRequest):
         repeat_penalty=request.repeat_penalty,
         stream=True
     )
-    
+
     for chunk in stream:
         # llama-cpp-python returns dicts that match OpenAI format
-        import json
         yield f"data: {json.dumps(chunk)}\n\n"
-    
+
     yield "data: [DONE]\n\n"
 
 def mock_response(request: ChatCompletionRequest):
-    import time
+    """Return a mock response when the model is unavailable."""
     return {
         "id": "chatcmpl-mock",
         "object": "chat.completion",
@@ -96,7 +101,10 @@ def mock_response(request: ChatCompletionRequest):
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": f"⚠️ Mock Response (Model not loaded). You said: {request.messages[-1].content}"
+                "content": (
+                    "⚠️ Mock Response (Model not loaded). You said: "
+                    f"{request.messages[-1].content}"
+                ),
             },
             "finish_reason": "stop"
         }],
@@ -109,16 +117,37 @@ def mock_response(request: ChatCompletionRequest):
 
 @app.get("/health")
 async def health():
+    """Simple health check endpoint."""
     status = "ok" if llm else "mock_mode"
     return {"status": status, "model_loaded": llm is not None}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8081, help="Port to run the server on")
-    parser.add_argument("--model-path", type=str, default=None, help="Path to the GGUF model file")
-    parser.add_argument("--n-gpu-layers", type=int, default=-1, help="Number of layers to offload to GPU (-1 for all)")
-    parser.add_argument("--n-ctx", type=int, default=2048, help="Context window size")
-    
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8081,
+        help="Port to run the server on",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Path to the GGUF model file",
+    )
+    parser.add_argument(
+        "--n-gpu-layers",
+        type=int,
+        default=-1,
+        help="Number of layers to offload to GPU (-1 for all)",
+    )
+    parser.add_argument(
+        "--n-ctx",
+        type=int,
+        default=2048,
+        help="Context window size",
+    )
+
     args = parser.parse_args()
 
     if args.model_path and Llama:
@@ -132,12 +161,15 @@ if __name__ == "__main__":
                     verbose=True
                 )
                 print("✅ Model loaded successfully!")
-            except Exception as e:
-                print(f"❌ Failed to load model: {e}")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                print(f"❌ Failed to load model: {exc}")
         else:
             print(f"❌ Model path does not exist: {args.model_path}")
     else:
-        print("ℹ️  No model path provided or llama-cpp-python missing. Starting in Mock Mode.")
+        print(
+            "ℹ️  No model path provided or llama-cpp-python missing. "
+            "Starting in Mock Mode."
+        )
 
     print(f"Worker starting on port {args.port}...")
     uvicorn.run(app, host="127.0.0.1", port=args.port)

@@ -1,7 +1,8 @@
+"""Environment setup helpers for the worker service."""
 import os
+import platform
 import subprocess
 import sys
-import platform
 
 def get_hardware_flags():
     """
@@ -9,21 +10,25 @@ def get_hardware_flags():
     """
     system = platform.system()
     machine = platform.machine()
-    
+
     flags = {}
-    
+
     if system == "Darwin":
         if machine == "arm64":
             print("🍎 Detected Apple Silicon (Metal)")
             flags["CMAKE_ARGS"] = "-DLLAMA_METAL=on"
         else:
             print("💻 Detected Intel Mac (CPU Only)")
-            flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off" # Default to CPU
-            
+            flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"  # Default to CPU
+
     elif system == "Linux":
         # Check for NVIDIA GPU
         try:
-            subprocess.check_call(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.check_call(
+                ["nvidia-smi"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             print("🟢 Detected NVIDIA GPU (CUDA)")
             flags["CMAKE_ARGS"] = "-DLLAMA_CUBLAS=on"
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -33,7 +38,8 @@ def get_hardware_flags():
     elif system == "Windows":
         # Basic check, can be improved
         print("🪟 Detected Windows")
-        flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off" # Default to CPU for safety in this script
+        # Default to CPU for safety in this script.
+        flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"
 
     return flags
 
@@ -69,7 +75,7 @@ def setup_environment():
 
     # 5. Install llama-cpp-python with Hardware Acceleration
     print("🚀 Installing llama-cpp-python with hardware acceleration...")
-    
+
     # Uninstall first to ensure clean rebuild if flags changed
     subprocess.call([pip_exe, "uninstall", "-y", "llama-cpp-python"])
 
@@ -79,12 +85,21 @@ def setup_environment():
 
     # Force reinstall with --no-cache-dir to ensure compilation happens
     subprocess.check_call(
-        [pip_exe, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir"],
-        env=env
+        [
+            pip_exe,
+            "install",
+            "llama-cpp-python",
+            "--force-reinstall",
+            "--no-cache-dir",
+        ],
+        env=env,
     )
 
     print("\n✨ Setup Complete! ✨")
-    print(f"To run the worker manually:\nsource {venv_dir}/bin/activate && python {worker_dir}/main.py")
+    print(
+        "To run the worker manually:\n"
+        f"source {venv_dir}/bin/activate && python {worker_dir}/main.py"
+    )
 
 if __name__ == "__main__":
     setup_environment()

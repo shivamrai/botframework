@@ -1,3 +1,4 @@
+"""Generate the model_classification.json registry file."""
 import json
 import os
 
@@ -7,6 +8,7 @@ import os
 REGISTRY_PATH = "../botframework/profiler/model_classification.json"
 
 def generate_registry():
+    """Create and write the model registry JSON file."""
     registry = {
         "models": [
             {
@@ -83,7 +85,7 @@ def generate_registry():
                     }
                 ]
             },
-             {
+            {
                 "id": "gemma-2-9b",
                 "name": "Gemma 2 (9B)",
                 "family": "gemma",
@@ -112,9 +114,9 @@ def generate_registry():
     # Ensure directory exists
     os.makedirs(os.path.dirname(REGISTRY_PATH), exist_ok=True)
 
-    with open(REGISTRY_PATH, "w") as f:
+    with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
         json.dump(registry, f, indent=2)
-    
+
     print(f"✅ Generated model registry at {REGISTRY_PATH}")
 
 if __name__ == "__main__":
