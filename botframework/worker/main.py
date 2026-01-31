@@ -123,6 +123,7 @@ def stream_chat_response(
     yield "data: [DONE]\n\n"
 
 def mock_response(request: ChatCompletionRequest) -> ChatCompletionResponse:
+    """Return a mock response when the model is unavailable."""
     return ChatCompletionResponse(
         id="chatcmpl-mock",
         object="chat.completion",
