@@ -1,9 +1,14 @@
 """Pydantic schemas for REST API payloads."""
 # pylint: disable=too-few-public-methods,import-error
 import time
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, TypedDict, Union
 
 from pydantic import BaseModel, Field
+
+class LlamaMessage(TypedDict):
+    """llama.cpp chat message format."""
+    role: str
+    content: str
 
 class ChatMessage(BaseModel):
     """Represents a single chat message."""
@@ -67,3 +72,9 @@ class ChatCompletionChunk(BaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
     choices: List[ChatCompletionChunkChoice]
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+    status: str
+    model_loaded: bool

@@ -11,7 +11,7 @@ def get_hardware_flags():
     system = platform.system()
     machine = platform.machine()
 
-    flags = {}
+    flags = dict[str, str]()
 
     if system == "Darwin":
         if machine == "arm64":
@@ -39,6 +39,15 @@ def get_hardware_flags():
         # Basic check, can be improved
         print("🪟 Detected Windows")
         # Default to CPU for safety in this script.
+        flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"
+
+    elif system == "Linux" and machine in {"x86_64", "amd64"}:
+        # Fallback for AMD/Intel GPUs using Vulkan when CUDA is not available.
+        print("🟦 Detected Linux (Vulkan fallback)")
+        flags["CMAKE_ARGS"] = "-DGGML_VULKAN=ON"
+
+    else:
+        print("❓ Unknown system, defaulting to CPU only.")
         flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"
 
     return flags

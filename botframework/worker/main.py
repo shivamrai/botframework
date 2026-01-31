@@ -1,4 +1,6 @@
 """Worker service entrypoint for chat completions."""
+from __future__ import annotations
+
 # pylint: disable=import-error,wrong-import-position
 import argparse
 import json
@@ -6,7 +8,7 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Sequence, TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI
@@ -15,17 +17,31 @@ from fastapi.responses import StreamingResponse
 # Add the parent directory to sys.path to allow imports from botframework
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from rest.schemas import ChatCompletionRequest
+from rest.schemas import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionResponseChoice,
+    ChatCompletionUsage,
+    ChatMessage,
+    HealthResponse,
+    LlamaMessage,
+)
 
 # Try importing llama-cpp-python
-try:
-    from llama_cpp import Llama
-except ImportError:
-    Llama = None
-    print("⚠️  llama-cpp-python not installed. Running in mock mode.")
 
-# Global LLM instance
-llm: Optional[Llama] = None
+if TYPE_CHECKING:
+    from llama_cpp import ChatCompletionRequestMessage
+    from llama_cpp import Llama
+
+try:
+    from llama_cpp import Llama as _LlamaRuntime
+except ImportError:
+    _LlamaRuntime = None
+
+
+# Global LLM instance (typed strictly as Llama)
+llm: Optional["Llama"] = None
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -48,7 +64,9 @@ async def chat_completions(request: ChatCompletionRequest):
         return mock_response(request)
 
     # Convert Pydantic messages to list of dicts for llama-cpp
-    messages = [{"role": m.role, "content": m.content} for m in request.messages]
+    messages: list[LlamaMessage] = [
+        {"role": m.role, "content": m.content} for m in request.messages
+    ]
 
     if request.stream:
         return StreamingResponse(
@@ -57,30 +75,44 @@ async def chat_completions(request: ChatCompletionRequest):
         )
     return create_chat_response(messages, request)
 
-def create_chat_response(messages, request: ChatCompletionRequest):
+def create_chat_response(
+    messages: Sequence["ChatCompletionRequestMessage"],
+    request: ChatCompletionRequest,
+):
     """Create a non-streaming chat completion response."""
+    assert llm is not None  # For type checker
+    temperature = 0.7 if request.temperature is None else request.temperature
+    top_k = 40 if request.top_k is None else request.top_k
+    repeat_penalty = 1.1 if request.repeat_penalty is None else request.repeat_penalty
     response = llm.create_chat_completion(
         messages=messages,
-        temperature=request.temperature,
+        temperature=temperature,
         top_p=request.top_p,
-        top_k=request.top_k,
+        top_k=top_k,
         max_tokens=request.max_tokens,
         stop=request.stop,
-        repeat_penalty=request.repeat_penalty,
+        repeat_penalty=repeat_penalty,
         stream=False
     )
     return response
 
-def stream_chat_response(messages, request: ChatCompletionRequest):
+def stream_chat_response(
+    messages: Sequence["ChatCompletionRequestMessage"],
+    request: ChatCompletionRequest,
+):
     """Stream chat completion chunks as server-sent events."""
+    assert llm is not None  # For type checker
+    temperature = 0.7 if request.temperature is None else request.temperature
+    top_k = 40 if request.top_k is None else request.top_k
+    repeat_penalty = 1.1 if request.repeat_penalty is None else request.repeat_penalty
     stream = llm.create_chat_completion(
         messages=messages,
-        temperature=request.temperature,
+        temperature=temperature,
         top_p=request.top_p,
-        top_k=request.top_k,
+        top_k=top_k,
         max_tokens=request.max_tokens,
         stop=request.stop,
-        repeat_penalty=request.repeat_penalty,
+        repeat_penalty=repeat_penalty,
         stream=True
     )
 
@@ -90,36 +122,38 @@ def stream_chat_response(messages, request: ChatCompletionRequest):
 
     yield "data: [DONE]\n\n"
 
-def mock_response(request: ChatCompletionRequest):
-    """Return a mock response when the model is unavailable."""
-    return {
-        "id": "chatcmpl-mock",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": request.model,
-        "choices": [{
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": (
-                    "⚠️ Mock Response (Model not loaded). You said: "
-                    f"{request.messages[-1].content}"
+def mock_response(request: ChatCompletionRequest) -> ChatCompletionResponse:
+    return ChatCompletionResponse(
+        id="chatcmpl-mock",
+        object="chat.completion",
+        created=int(time.time()),
+        model=request.model,
+        choices=[
+            ChatCompletionResponseChoice(
+                index=0,
+                message=ChatMessage(
+                    role="assistant",
+                    content=(
+                        "⚠️ Mock Response (Model not loaded). You said: "
+                        f"{request.messages[-1].content}"
+                    ),
                 ),
-            },
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
-        }
-    }
+                finish_reason="stop",
+            )
+        ],
+        usage=ChatCompletionUsage(
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+        ),
+    )
 
-@app.get("/health")
-async def health():
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
     """Simple health check endpoint."""
     status = "ok" if llm else "mock_mode"
-    return {"status": status, "model_loaded": llm is not None}
+    return HealthResponse(status=status, model_loaded=llm is not None)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -150,11 +184,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.model_path and Llama:
+    if args.model_path and _LlamaRuntime:
         if os.path.exists(args.model_path):
             print(f"📂 Loading model from: {args.model_path}")
             try:
-                llm = Llama(
+                llm = _LlamaRuntime(
                     model_path=args.model_path,
                     n_gpu_layers=args.n_gpu_layers,
                     n_ctx=args.n_ctx,
