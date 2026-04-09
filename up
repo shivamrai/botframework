@@ -11,12 +11,19 @@ if ! command -v go >/dev/null 2>&1; then
 	exit 1
 fi
 
+PYTHON_BIN=""
+
 if command -v python3.12 >/dev/null 2>&1; then
 	PYTHON_BIN="python3.12"
 elif command -v python3 >/dev/null 2>&1; then
-	PYTHON_BIN="python3"
-else
-	echo "error: python3.12 or python3 is required but was not found on PATH" >&2
+	PYTHON_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+	if [[ "$PYTHON_VERSION" == "3.12" ]]; then
+		PYTHON_BIN="python3"
+	fi
+fi
+
+if [[ -z "$PYTHON_BIN" ]]; then
+	echo "error: Python 3.12 is required. Install python3.12 and rerun ./up" >&2
 	exit 1
 fi
 

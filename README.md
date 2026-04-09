@@ -46,8 +46,8 @@ The bootstrap script installs `pipenv` if needed, detects the available accelera
 
 #### Python Environment
 ```bash
-python3 -m pip install --user pipenv
-CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pipenv install
+python3.12 -m pip install --user pipenv
+CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pipenv install --python python3.12
 ```
 
 Use the `CMAKE_ARGS` that matches your host hardware:
