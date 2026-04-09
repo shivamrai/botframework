@@ -34,6 +34,7 @@ type HardwareProfile struct {
 	SystemRAM_MB int
 	HasCuda      bool
 	HasMetal     bool
+	HasROCm      bool
 	ComputeCap   float64 // e.g. 8.6 for RTX 30-series
 	CpuAVX512    bool
 }
@@ -43,6 +44,7 @@ func DetectHardware() *HardwareProfile {
 	profile := &HardwareProfile{
 		HasMetal: false,
 		HasCuda:  false,
+		HasROCm:  false,
 	}
 
 	// 1. Detect System RAM
@@ -72,6 +74,15 @@ func DetectHardware() *HardwareProfile {
 				profile.VRAM_MB = vram
 				cap, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 				profile.ComputeCap = cap
+			}
+		} else {
+			// Check for AMD GPU (ROCm)
+			_, err := exec.Command("rocm-smi", "--showid").Output()
+			if err == nil {
+				profile.HasROCm = true
+				// For ROCm, we could parse VRAM, but for simplicity, assume based on system RAM
+				// In production, parse rocm-smi output for VRAM
+				profile.VRAM_MB = int(float64(profile.SystemRAM_MB) * 0.5) // Conservative estimate
 			}
 		}
 	}
@@ -103,7 +114,7 @@ func (p *HardwareProfile) ClassifyTier() Tier {
 	vramGB := p.VRAM_MB / 1024
 	ramGB := p.SystemRAM_MB / 1024
 
-	if p.HasCuda {
+	if p.HasCuda || p.HasROCm {
 		if vramGB >= 24 {
 			return TierElite
 		}
@@ -126,8 +137,8 @@ func (p *HardwareProfile) GetRecommendedEngine(modelSizeGB float64) Engine {
 		return EngineMLX
 	}
 
-	// 2. NVIDIA Rules
-	if p.HasCuda {
+	// 2. NVIDIA/AMD GPU Rules
+	if p.HasCuda || p.HasROCm {
 		vramGB := float64(p.VRAM_MB) / 1024.0
 		
 		// "Elite" Rule: If we have massive VRAM headroom (>20% more than model), use vLLM
@@ -148,6 +159,6 @@ func (p *HardwareProfile) GetRecommendedEngine(modelSizeGB float64) Engine {
 
 // String returns a summary of the profile
 func (p *HardwareProfile) String() string {
-	return fmt.Sprintf("RAM: %dMB, VRAM: %dMB, CUDA: %v, Metal: %v, Compute: %.1f", 
-		p.SystemRAM_MB, p.VRAM_MB, p.HasCuda, p.HasMetal, p.ComputeCap)
+	return fmt.Sprintf("RAM: %dMB, VRAM: %dMB, CUDA: %v, ROCm: %v, Metal: %v, Compute: %.1f", 
+		p.SystemRAM_MB, p.VRAM_MB, p.HasCuda, p.HasROCm, p.HasMetal, p.ComputeCap)
 }

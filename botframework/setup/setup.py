@@ -22,7 +22,7 @@ def get_hardware_flags():
             flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"  # Default to CPU
 
     elif system == "Linux":
-        # Check for NVIDIA GPU
+        # Check for NVIDIA GPU first
         try:
             subprocess.check_call(
                 ["nvidia-smi"],
@@ -32,8 +32,18 @@ def get_hardware_flags():
             print("🟢 Detected NVIDIA GPU (CUDA)")
             flags["CMAKE_ARGS"] = "-DLLAMA_CUBLAS=on"
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print("🐧 Detected Linux (CPU Only)")
-            flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"
+            # Check for AMD GPU (ROCm)
+            try:
+                subprocess.check_call(
+                    ["rocm-smi", "--showid"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print("🟠 Detected AMD GPU (ROCm)")
+                flags["CMAKE_ARGS"] = "-DLLAMA_HIPBLAS=on"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print("🐧 Detected Linux (CPU Only)")
+                flags["CMAKE_ARGS"] = "-DLLAMA_BLAS=off"
 
     elif system == "Windows":
         # Basic check, can be improved

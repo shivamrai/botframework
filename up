@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cd "$ROOT_DIR"
+
+if ! command -v go >/dev/null 2>&1; then
+	echo "error: go is required but was not found on PATH" >&2
+	exit 1
+fi
+
+if command -v python3.12 >/dev/null 2>&1; then
+	PYTHON_BIN="python3.12"
+elif command -v python3 >/dev/null 2>&1; then
+	PYTHON_BIN="python3"
+else
+	echo "error: python3.12 or python3 is required but was not found on PATH" >&2
+	exit 1
+fi
+
+if ! command -v pipenv >/dev/null 2>&1; then
+	echo "Installing pipenv with $PYTHON_BIN..."
+	"$PYTHON_BIN" -m pip install --user pipenv
+fi
+
+CMAKE_ARGS="-DLLAMA_BLAS=off"
+
+if command -v nvidia-smi >/dev/null 2>&1; then
+	CMAKE_ARGS="-DLLAMA_CUBLAS=on"
+elif command -v rocm-smi >/dev/null 2>&1 && rocm-smi --showid >/dev/null 2>&1; then
+	CMAKE_ARGS="-DLLAMA_HIPBLAS=on"
+elif [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+	CMAKE_ARGS="-DLLAMA_METAL=on"
+fi
+
+echo "Using $PYTHON_BIN"
+echo "Using CMAKE_ARGS=$CMAKE_ARGS"
+
+export CMAKE_ARGS
+PIPENV_VENV_IN_PROJECT=1 pipenv install --python "$PYTHON_BIN"
+
+echo
+echo "Bootstrap complete."
+echo "Run the manager with:"
+echo "  cd botframework && go run ./manager"

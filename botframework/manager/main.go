@@ -1,6 +1,7 @@
 package main
 
 import (
+	"botframework/profiler"
 	"context"
 	"fmt"
 	"log"
@@ -9,8 +10,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"time"
-	"botframework/profiler"
 )
 
 // 1. Define the Interface (The "Contract")
@@ -43,13 +45,30 @@ func NewPythonWorker(scriptPath string, port string) *PythonWorker {
 	}
 }
 
+func resolveProjectRoot() string {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "."
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
+}
+
 func (p *PythonWorker) Start(ctx context.Context) error {
 	fmt.Printf("🚀 Starting Python Engine: %s on port %s\n", p.ScriptPath, p.Port)
 
-	// In a real app, we would use the specific venv python executable
-	// For now, we assume 'python3' is available in the path
-	p.Process = exec.CommandContext(ctx, "python3", p.ScriptPath, "--port", p.Port)
-	
+	if configuredPython := os.Getenv("BOTFRAMEWORK_PYTHON"); configuredPython != "" {
+		fmt.Printf("🐍 Using BOTFRAMEWORK_PYTHON=%s\n", configuredPython)
+		p.Process = exec.CommandContext(ctx, configuredPython, p.ScriptPath, "--port", p.Port)
+	} else if _, err := exec.LookPath("pipenv"); err == nil {
+		fmt.Println("🐍 Using pipenv-managed Python environment")
+		p.Process = exec.CommandContext(ctx, "pipenv", "run", "python", p.ScriptPath, "--port", p.Port)
+	} else {
+		fmt.Println("🐍 Using system python3")
+		p.Process = exec.CommandContext(ctx, "python3", p.ScriptPath, "--port", p.Port)
+	}
+	p.Process.Dir = resolveProjectRoot()
+
 	// Pipe stdout/stderr to the parent process for debugging
 	p.Process.Stdout = os.Stdout
 	p.Process.Stderr = os.Stderr
@@ -84,6 +103,15 @@ type ModelManager struct {
 	Engine InferenceEngine
 }
 
+func resolveWorkerScript() string {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return filepath.Join("..", "worker", "main.py")
+	}
+
+	return filepath.Join(filepath.Dir(currentFile), "..", "worker", "main.py")
+}
+
 func NewSmartManager() *ModelManager {
 	// 1. Run Hardware Profiling
 	fmt.Println("🔍 Scanning Hardware...")
@@ -95,14 +123,14 @@ func NewSmartManager() *ModelManager {
 
 	// 2. Select Engine based on a hypothetical model size (e.g., 7B Q4 ~ 5.5GB)
 	// In the future, this will come from the user's selected model in the UI
-	targetModelSizeGB := 5.5 
+	targetModelSizeGB := 5.5
 	recommendedEngine := profile.GetRecommendedEngine(targetModelSizeGB)
 	fmt.Printf("⚙️  Recommended Engine: %s\n", recommendedEngine)
 
 	var selectedEngine InferenceEngine
 
 	// Path to the worker script
-	workerScript := "botframework/worker/main.py"
+	workerScript := resolveWorkerScript()
 
 	// 3. Provision the correct worker
 	switch recommendedEngine {
@@ -137,7 +165,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to start engine: %v", err)
 	}
-	
+
 	// Ensure we stop the worker when the manager exits
 	defer func() {
 		if err := manager.Engine.Stop(); err != nil {
@@ -150,7 +178,7 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Log the request
 		fmt.Printf("📥 Request: %s %s\n", r.Method, r.URL.Path)
-		
+
 		// Forward everything to the worker
 		manager.Engine.ProxyRequest(w, r)
 	})

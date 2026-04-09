@@ -18,49 +18,61 @@ BotFramework is a local LLM middleware that provides an OpenAI-compatible API fo
 
 ## Prerequisites
 - **Go 1.21+**
-- **Python 3.10+**
-- **Docker** (Optional, for Dev Container)
+- **Python 3.12+**
+- **pipenv**
 
 ## Setup Instructions
 
-### 1. Dev Container (Recommended)
-This project is configured to use a Dev Container with isolated SSH credentials.
-1.  **SSH Keys**: Ensure your GitHub SSH keys are in the `localssh` directory.
-    *   Required files: `id_rsa` (private key) and `id_rsa.pub` (public key).
-2.  **Open in Container**: Use "Dev Containers: Reopen in Container" in VS Code.
+### Open The Project
+You can open the repository directly as a folder, or use the workspace file to keep editor settings scoped to this project:
 
-### 2. Local Setup (Manual)
+```bash
+code botframework.code-workspace
+```
 
-#### Python Worker
+The workspace file is optional.
+
+### 1. Native Bootstrap (Recommended)
+BotFramework is designed to probe the host machine directly and choose the right inference backend for that hardware. The recommended development path is native execution with Go on the host and Python isolated through `pipenv`.
+
+**Bootstrap the repo:**
 ```bash
-cd botframework/worker
-python3 -m venv venv
-source venv/bin/activate
-pip install fastapi uvicorn llama-cpp-python
+./up
 ```
-*Note: For Apple Silicon, install `llama-cpp-python` with Metal support:*
+
+The bootstrap script installs `pipenv` if needed, detects the available acceleration backend, and installs the Python dependencies with the correct `CMAKE_ARGS` for `llama-cpp-python`.
+
+### 2. Manual Setup
+
+#### Python Environment
 ```bash
-CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python
+python3 -m pip install --user pipenv
+CMAKE_ARGS="-DLLAMA_HIPBLAS=on" pipenv install
 ```
+
+Use the `CMAKE_ARGS` that matches your host hardware:
+- ROCm: `-DLLAMA_HIPBLAS=on`
+- NVIDIA: `-DLLAMA_CUBLAS=on`
+- Apple Silicon: `-DLLAMA_METAL=on`
+- CPU only: `-DLLAMA_BLAS=off`
 
 #### Go Manager
 ```bash
-cd botframework/manager
-go mod init botframework
+cd botframework
 go mod tidy
-go run main.go
+go run ./manager
 ```
 
 ## Usage
 1.  Start the Manager:
     ```bash
-    cd botframework/manager
-    go run main.go
+    cd botframework
+    go run ./manager
     ```
 2.  The Manager will:
     *   Detect your hardware (RAM, GPU).
     *   Recommend the best inference engine.
-    *   Start the Python worker.
+    *   Start the Python worker by preferring the project `pipenv` environment.
     *   Serve an OpenAI-compatible API at `http://localhost:8080`.
 
 ## Development Scripts

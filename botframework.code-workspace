@@ -1,0 +1,14 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "extensions": {
+        "recommendations": [
+            "golang.Go",
+            "ms-python.python",
+            "GitHub.copilot"
+        ]
+    }
+}
