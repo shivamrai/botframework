@@ -81,4 +81,3 @@ go run ./manager
     python3 scripts/generate_model_registry.py
     ```
     Updates `botframework/profiler/model_classification.json` with the latest model data.
-

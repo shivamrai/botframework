@@ -41,6 +41,7 @@ except ImportError:
 
 # Global LLM instance (typed strictly as Llama)
 llm: Optional["Llama"] = None
+loaded_model_name = "mock"
 
 
 @asynccontextmanager
@@ -154,7 +155,11 @@ def mock_response(request: ChatCompletionRequest) -> ChatCompletionResponse:
 async def health() -> HealthResponse:
     """Simple health check endpoint."""
     status = "ok" if llm else "mock_mode"
-    return HealthResponse(status=status, model_loaded=llm is not None)
+    return HealthResponse(
+        status=status,
+        model_loaded=llm is not None,
+        model=loaded_model_name,
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -195,6 +200,7 @@ if __name__ == "__main__":
                     n_ctx=args.n_ctx,
                     verbose=True
                 )
+                loaded_model_name = os.path.basename(args.model_path)
                 print("✅ Model loaded successfully!")
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 print(f"❌ Failed to load model: {exc}")

@@ -97,7 +97,10 @@ fmt.Println(res.Text)
 POST /v1/chat/completions
 POST /v1/completions
 POST /v1/embeddings
-POST /v1/models/list
+GET  /v1/models
+GET  /v1/sessions
+GET  /v1/health
+POST /v1/cancel/{session}
 \`\`\`
 
 ---
@@ -159,10 +162,29 @@ POST /v1/cancel/{session}
 
 Example:
 \`\`\`
-systemctl enable bot.framework
-systemctl start bot.framework
-journalctl -fu bot.framework
+systemctl --user enable botframework
+systemctl --user start botframework
+journalctl --user -fu botframework
 \`\`\`
+
+The service file is optional. The daemon can also run in the foreground for local development or be spawned directly by an editor extension.
+
+---
+
+### 8️⃣ Language SDKs
+
+Thin SDKs wrap the local daemon rather than embedding inference directly:
+
+- **Python SDK:** First published SDK for notebooks, scripts, and automation
+- **Go SDK:** Native integration for local services and CLIs
+- **TypeScript SDK:** Editor and desktop app integration
+
+Each SDK should provide:
+
+- daemon discovery (`localhost` by default, overridable by config)
+- typed request/response models
+- streaming helpers
+- health and model discovery helpers
 
 ---
 
@@ -176,49 +198,47 @@ To ensure robustness and scalability, we adopt a distributed system pattern loca
 - **The Worker (Python):** Acts as the "Data Plane". It loads the heavy AI libraries (`llama-cpp-python`, `torch`).
 - **Benefit:** Decouples service stability from inference stability. If the Python worker crashes (OOM), the Go manager stays alive to restart it or report errors.
 
-### 2️⃣ Smart Hardware Provisioning (Sliding Window)
+### 2️⃣ Smart Hardware Provisioning & Model Discovery
 
-Instead of forcing users to pick model parameters, the system auto-configures based on a "Weights & Rank" logic:
+Instead of forcing users to pick low-level runtime parameters, the manager should combine hardware discovery with ranked model selection:
 
-- **Phase A: Discovery:** On startup, the Go Manager probes the system (CPU AVX support, GPU Vendor, Total VRAM).
-- **Phase B: Tiers:**
-  - *Tier 1 (<8GB RAM):* Selects highly quantized 3B-7B models.
-  - *Tier 2 (8-16GB RAM):* Selects 7B-13B models (Q4/Q5).
-  - *Tier 3 (>16GB + GPU):* Selects larger models or higher precision.
-- **Phase C: Dynamic Re-configuration:** The Manager re-runs profiling on every startup. If hardware changes (e.g., eGPU added), it triggers a re-provisioning flow.
+- **Phase A: Discovery:** On startup, the Go manager probes the system for CPU features, GPU vendor, VRAM, and available system RAM.
+- **Phase B: Tiering:**
+  - *Tier 1 (<8GB RAM):* Prefer highly quantized 3B-7B models.
+  - *Tier 2 (8-16GB RAM):* Prefer 7B-13B models in Q4/Q5 ranges.
+  - *Tier 3 (>16GB RAM or dedicated GPU):* Allow larger models or higher precision variants.
+- **Phase C: Filtering:** The model registry is filtered to variants that fit available memory and backend constraints.
+- **Phase D: Selection:** The client can choose from compatible models, while the middleware defaults to the highest-ranked model that fits comfortably.
+- **Phase E: Reconfiguration:** Profiling runs on every startup and can refresh available models when hardware changes.
 
-### 1️⃣ Manager-Worker Architecture (Go + Python)
+### 3️⃣ Three-Layer Middleware Architecture
 
-To ensure robustness and scalability, we adopt a distributed system pattern locally:
+The runtime should be shaped as a local daemon with clearly separated interfaces:
 
-- **The Manager (Go):** Acts as the "Control Plane". It handles HTTP requests, manages processes, checks hardware, and routes traffic. It starts instantly and uses minimal RAM.
-- **The Worker (Python):** Acts as the "Data Plane". It loads the heavy AI libraries (`llama-cpp-python`, `torch`).
-- **Benefit:** Decouples service stability from inference stability. If the Python worker crashes (OOM), the Go manager stays alive to restart it or report errors.
+- **Core daemon:** The Go manager is the long-lived host process. It owns hardware detection, worker lifecycle, session coordination, health checks, and restart policy.
+- **Public inference API:** A stable OpenAI-compatible surface exposed locally for any programming language:
+  - `POST /v1/chat/completions`
+  - `POST /v1/completions`
+  - `POST /v1/embeddings`
+  - `GET /v1/models`
+  - `GET /v1/sessions`
+  - `GET /v1/health`
+- **Tool/control API:** A separate, explicitly opt-in local interface for trusted IDE-style actions such as reading files, listing workspaces, applying patches, and fetching diagnostics. This is intentionally deferred until after the core inference middleware reaches a stable `v1.0`.
 
-### 2️⃣ Smart Model Discovery & Selection
-
-Instead of forcing a single "best" model, the system empowers the user with smart defaults:
-
-- **Phase A: Discovery:** On startup, the Go Manager probes the system (CPU AVX support, GPU Vendor, Total VRAM).
-- **Phase B: Filtering:** The system generates a list of *compatible* models from the registry.
-  - *Example:* If VRAM is 8GB, it filters out 70B models but highlights 7B (Q4) and 13B (Q2).
-- **Phase C: User Selection:** The user selects their preferred model via the client UI (VS Code). The system defaults to the highest-ranked model that fits comfortably in VRAM.
-- **Phase D: Dynamic Re-configuration:** If hardware changes (e.g., eGPU added), the available model list is automatically refreshed.
-
-### 3️⃣ Native Service Architecture (Strategy #2)
+### 4️⃣ Native Service Architecture
 
 To balance **isolation** with **native performance**, the middleware runs as a standalone process on the host OS, not inside a container.
 
 - **Why:** Avoids Docker virtualization overhead (especially on macOS/Metal).
 - **Isolation:** Achieved via self-contained binary distribution (no system Python dependency).
 
-### 2️⃣ Single Binary Distribution
+### 5️⃣ Single Binary Distribution
 
 - **Mechanism:** PyInstaller (Python) or Go compilation.
 - **Benefit:** "Click-to-run" experience. No `pip install` or CUDA toolkit configuration required for end-users.
 - **Pathing:** Writes config/logs to standard user data directories (e.g., `~/.config/botframework`, `~/Library/Application Support/`).
 
-### 3️⃣ Hardware Abstraction Layer (HAL)
+### 6️⃣ Hardware Abstraction Layer (HAL)
 
 The runtime acts as a HAL for LLM inference, maximizing resource usage:
 
@@ -226,7 +246,7 @@ The runtime acts as a HAL for LLM inference, maximizing resource usage:
 - **Windows/Linux:** Auto-detects NVIDIA GPUs (`CUDA`) or falls back to `AVX/AVX2` CPU instructions.
 - **Memory Mapping:** Uses `mmap` for model loading to allow OS-level paging and prevent OOM crashes.
 
-### 4️⃣ Editor-Managed Lifecycle (LSP Model)
+### 7️⃣ Editor-Managed Lifecycle (LSP Model)
 
 For VS Code/IDE integration, we adopt the Language Server Protocol lifecycle pattern:
 
@@ -234,7 +254,7 @@ For VS Code/IDE integration, we adopt the Language Server Protocol lifecycle pat
 - **Heartbeat:** Server reports status (VRAM usage, model ready) to the editor status bar.
 - **Cleanup:** Extension terminates the process on exit (configurable).
 
-### 5️⃣ Jupyter & Notebook Integration
+### 8️⃣ Jupyter & Notebook Integration
 
 - **Decoupled State:** The model runs in the background server, independent of the notebook kernel.
 - **Benefit:** Restarting the notebook kernel does *not* unload the model (zero-latency iteration).
@@ -297,10 +317,13 @@ This table defines the logic for our profiling engine:
 
 | Version | Milestone |
 |--------|-----------|
-| v0.1 | Local Python server + `/v1/chat` + streaming |
-| v0.2 | Python client + VS Code demo extension |
-| v0.3 | Go backend + OpenAI compatible endpoints |
-| v0.4 | Function calling + JSON mode |
-| v1.0 | Published library + docs + template repos |
+| v0.1 | Python worker + `/v1/chat/completions` + streaming |
+| v0.2 | Go manager daemon + health-check loop + worker restart + `/v1/models` + `/v1/health` |
+| v0.3 | Sessions + KV cache reuse + `/v1/sessions` + `/v1/embeddings` |
+| v0.4 | Structured output (JSON schema) + function calling |
+| v0.5 | Python SDK + `systemd --user` service file |
+| v0.6 | Go SDK + TypeScript SDK |
+| v1.0 | Published packages + docs + template repos |
+| v1.1 | Tool/control API for IDE integration |
 
 ---

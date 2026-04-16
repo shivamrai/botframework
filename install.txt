@@ -1,0 +1,76 @@
+Commands (Fedora 43, Ryzen 9 + RX 9070 XT)
+
+Run as root or prepend sudo.
+
+    System update
+
+dnf upgrade -y
+dnf groupinstall -y "Development Tools"
+dnf install -y epel-release
+dnf update -y
+
+    Basic build tools & libs
+
+dnf install -y git cmake ninja-build make gcc gcc-c++ clang \
+python3 python3-pip python3-virtualenv \
+numactl-devel openblas-devel protobuf-devel flatbuffers-devel \
+hwloc-devel
+
+    Container tooling (Podman + buildx / nerdctl alternatives)
+
+dnf install -y podman buildah skopeo
+# optional docker-compatible shim
+dnf install -y podman-docker
+# install BuildKit buildx (if needed)
+python3 -m pip install --user buildx
+
+    ROCm runtime & dev (follow AMD repo for Fedora — example placeholder steps)
+
+    Add AMD/ROCm repo per AMD instructions for your distro (replace with the current AMD repo URL).
+    Then install ROCm packages:
+
+# after adding AMD repo per AMD docs
+dnf install -y rocm-dev hip-rocclr hip-runtime rocm-opencl rocm-libs rocblas rocm-dev
+# enable ROCm paths
+echo 'export PATH=/opt/rocm/bin:$PATH' >> /etc/profile.d/rocm.sh
+source /etc/profile.d/rocm.sh
+
+    Verify ROCm / HIP visible
+
+/opt/rocm/bin/rocminfo
+/opt/rocm/bin/rocm-smi
+hipcc --version
+
+    Create Python venv and install lightweight test deps
+
+python3 -m venv ~/venvs/bot-dev
+source ~/venvs/bot-dev/bin/activate
+pip install --upgrade pip setuptools wheel
+# example small inference libs for quick tests
+pip install numpy torch --index-url https://download.pytorch.org/whl/rocm5.2  # adjust for your ROCm version
+
+    Quick clone & build example native backend (llama.cpp-style)
+
+git clone https://github.com/ggerganov/llama.cpp.git
+cd llama.cpp
+# clean previous CMake build artifacts (safe if build dir exists)
+cmake --build build --target clean || true
+# configure HIP/ROCm build
+cmake -S . -B build -DGGML_HIP=ON -DCMAKE_BUILD_TYPE=Release
+# build all targets
+cmake --build build -j$(nproc)
+# run a small test command (prints help)
+./build/bin/llama-cli -h
+
+    Dev ergonomics & testing
+
+# basic scripts directory
+mkdir -p ~/dev/bot-framework/scripts
+# example bootstrap script placeholders (fill with the above commands)
+
+Notes (short):
+
+    Replace ROCm package names and the PyTorch ROCm wheel index with versions that match the ROCm release you install.
+    If Fedora-specific ROCm packages are not published for your ROCm version, consider using AMD's recommended distro or run ROCm in a container image on Fedora.
+
+If you want, I can generate a Fedora-43-specific ROCm repo add command and a Dockerfile for a ROCm dev image — tell me to proceed.
